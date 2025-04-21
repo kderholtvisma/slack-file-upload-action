@@ -1,6 +1,8 @@
 # Slack file upload action
 
-This action uploads file to slack
+This action uploads files to Slack using the new external upload APIs (files.getUploadURLExternal and files.completeUploadExternal).
+
+**IMPORTANT:** This action is compatible with Slack's API changes announced for November 12, 2025, when the legacy `files.upload` API will be discontinued.
 
 ## Inputs
 
@@ -9,7 +11,7 @@ This action uploads file to slack
 **Required** Slack app token. See [Internal app tokens](https://slack.com/intl/en-ru/help/articles/215770388-Create-and-regenerate-API-tokens#internal-app-tokens)
 * Create app
 * Add `files:write` permission
-* Install app to your workspase
+* Install app to your workspace
 * Invite bot to required channels `/invite <botname>`
 * Use bot token from `OAuth & Permissions` page
 ### `path`

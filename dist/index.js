@@ -7474,7 +7474,7 @@ function makeApiRequest(options, body) {
     });
 }
 
-async function getUploadUrl(token, filename, filetype) {
+async function getUploadUrl(token, filePath, filename, filetype) {
     const options = {
         hostname: 'slack.com',
         path: '/api/files.getUploadURLExternal',
@@ -7487,7 +7487,7 @@ async function getUploadUrl(token, filename, filetype) {
 
     const body = JSON.stringify({
         filename,
-        length: fs.statSync(filename).size,
+        length: fs.statSync(filePath).size,
         ...(filetype && { filetype })
     });
 
@@ -7539,7 +7539,7 @@ async function completeUpload(token, fileId, channel, initial_comment, thread_ts
             id: fileId,
             ...(title && { title }),
         }],
-        ...(channel && { channel_id: channel }),
+        ...(channel && { channel_ids: channel.split(',') }),
         ...(initial_comment && { initial_comment }),
         ...(thread_ts && { thread_ts })
     });
@@ -7560,7 +7560,7 @@ async function run() {
         const title = core.getInput('title');
 
         // Step 1: Get upload URL
-        const uploadUrlResponse = await getUploadUrl(token, filename, filetype);
+        const uploadUrlResponse = await getUploadUrl(token, filePath, filename, filetype);
         const { upload_url, file_id } = uploadUrlResponse;
 
         // Step 2: Upload file to URL
