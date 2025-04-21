@@ -16,106 +16,171 @@ function finish(result) {
 
 function makeApiRequest(options, body) {
     return new Promise((resolve, reject) => {
+        console.log(`Making API request to ${options.hostname}${options.path}`);
+        if (body) {
+            console.log(`Request body: ${body}`);
+        }
+        
         const req = https.request(options, (res) => {
+            console.log(`Response status code: ${res.statusCode}`);
             let rawData = '';
             res.on('data', (chunk) => { rawData += chunk; });
             res.on('end', () => {
+                console.log(`Response data: ${rawData}`);
                 try {
                     const data = JSON.parse(rawData);
                     if (data.ok) {
                         resolve(data);
                     } else {
-                        reject(data.error);
+                        console.error(`API error: ${data.error}`, data);
+                        reject(data.error || "API request failed without error message");
                     }
                 } catch (error) {
+                    console.error(`Error parsing response: ${error.message}`);
                     reject(error.message);
                 }
             });
         });
-        req.on('error', (error) => reject(error));
+        req.on('error', (error) => {
+            console.error(`Request error: ${error.message}`);
+            reject(error);
+        });
         if (body) req.write(body);
         req.end();
     });
 }
 
 async function getUploadUrl(token, filePath, filename, filetype) {
-    const options = {
-        hostname: 'slack.com',
-        path: '/api/files.getUploadURLExternal',
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        }
-    };
+    try {
+        const fileSize = fs.statSync(filePath).size;
+        
+        const options = {
+            hostname: 'slack.com',
+            path: '/api/files.getUploadURLExternal',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            }
+        };
 
-    const body = JSON.stringify({
-        filename,
-        length: fs.statSync(filePath).size,
-        ...(filetype && { filetype })
-    });
-
-    const response = await makeApiRequest(options, body);
-    return response;
+        const body = JSON.stringify({
+            filename: filename,
+            length: fileSize,
+            ...(filetype && { filetype })
+        });
+        
+        console.log(`Requesting upload URL for file: ${filename}, size: ${fileSize} bytes`);
+        const response = await makeApiRequest(options, body);
+        return response;
+    } catch (error) {
+        console.error(`Error in getUploadUrl: ${error.message}`);
+        throw error;
+    }
 }
 
 async function uploadFileToUrl(uploadUrl, filePath) {
     return new Promise((resolve, reject) => {
-        const fileStream = fs.createReadStream(filePath);
-        const options = new URL(uploadUrl);
-        
-        const req = https.request({
-            hostname: options.hostname,
-            path: options.pathname + options.search,
-            method: 'PUT',
-            headers: {
-                'Content-Length': fs.statSync(filePath).size,
-                'Content-Type': 'application/octet-stream'
-            }
-        }, (res) => {
-            if (res.statusCode >= 200 && res.statusCode < 300) {
-                resolve();
-            } else {
-                let errorData = '';
-                res.on('data', (chunk) => { errorData += chunk; });
-                res.on('end', () => reject(`Upload failed: ${res.statusCode} ${errorData}`));
-            }
-        });
-        
-        req.on('error', (error) => reject(error));
-        fileStream.pipe(req);
+        try {
+            console.log(`Uploading file from ${filePath} to ${uploadUrl}`);
+            const fileStream = fs.createReadStream(filePath);
+            const fileSize = fs.statSync(filePath).size;
+            console.log(`File size: ${fileSize} bytes`);
+            
+            const options = new URL(uploadUrl);
+            console.log(`Upload hostname: ${options.hostname}, path: ${options.pathname + options.search}`);
+            
+            const req = https.request({
+                hostname: options.hostname,
+                path: options.pathname + options.search,
+                method: 'PUT',
+                headers: {
+                    'Content-Length': fileSize,
+                    'Content-Type': 'application/octet-stream'
+                }
+            }, (res) => {
+                console.log(`Upload response status code: ${res.statusCode}`);
+                if (res.statusCode >= 200 && res.statusCode < 300) {
+                    console.log('File upload successful');
+                    resolve();
+                } else {
+                    let errorData = '';
+                    res.on('data', (chunk) => { errorData += chunk; });
+                    res.on('end', () => {
+                        console.error(`Upload failed: ${res.statusCode} ${errorData}`);
+                        reject(`Upload failed: ${res.statusCode} ${errorData}`);
+                    });
+                }
+            });
+            
+            req.on('error', (error) => {
+                console.error(`Upload error: ${error.message}`);
+                reject(error);
+            });
+            
+            fileStream.pipe(req);
+        } catch (error) {
+            console.error(`Error in uploadFileToUrl: ${error.message}`);
+            reject(error);
+        }
     });
 }
 
 async function completeUpload(token, fileId, channel, initial_comment, thread_ts, title) {
-    const options = {
-        hostname: 'slack.com',
-        path: '/api/files.completeUploadExternal',
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
+    try {
+        console.log(`Completing upload for file ID: ${fileId}`);
+        
+        const options = {
+            hostname: 'slack.com',
+            path: '/api/files.completeUploadExternal',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            }
+        };
+
+        let channelParam = {};
+        if (channel) {
+            // Check if it's a single channel or multiple comma-separated channels
+            if (channel.includes(',')) {
+                channelParam = { channel_ids: channel.split(',') };
+            } else {
+                channelParam = { channel_id: channel };
+            }
         }
-    };
 
-    const body = JSON.stringify({
-        files: [{
-            id: fileId,
-            ...(title && { title }),
-        }],
-        ...(channel && { channel_ids: channel.split(',') }),
-        ...(initial_comment && { initial_comment }),
-        ...(thread_ts && { thread_ts })
-    });
+        const body = JSON.stringify({
+            files: [{
+                id: fileId,
+                ...(title && { title }),
+            }],
+            ...channelParam,
+            ...(initial_comment && { initial_comment }),
+            ...(thread_ts && { thread_ts })
+        });
 
-    const response = await makeApiRequest(options, body);
-    return response;
+        console.log(`Complete upload request body: ${JSON.stringify(JSON.parse(body), null, 2)}`);
+        const response = await makeApiRequest(options, body);
+        console.log(`Complete upload response: ${JSON.stringify(response)}`);
+        return response;
+    } catch (error) {
+        console.error(`Error in completeUpload: ${error}`);
+        throw error;
+    }
 }
 
 async function run() {
     try {
         const token = core.getInput('token');
         const filePath = core.getInput('path');
+        console.log(`Input file path: ${filePath}`);
+        
+        // Verify file exists and is accessible
+        if (!fs.existsSync(filePath)) {
+            throw new Error(`File does not exist: ${filePath}`);
+        }
+        
         const channel = core.getInput('channel');
         const filename = core.getInput('filename') || path.basename(filePath);
         const filetype = core.getInput('filetype');
@@ -123,8 +188,11 @@ async function run() {
         const thread_ts = core.getInput('thread_ts');
         const title = core.getInput('title');
 
+        console.log(`Uploading file: ${filename} (${filetype || 'auto-detect type'}) from path: ${filePath}`);
+        
         // Step 1: Get upload URL
         const uploadUrlResponse = await getUploadUrl(token, filePath, filename, filetype);
+        console.log(`Got upload URL response: ${JSON.stringify(uploadUrlResponse)}`);
         const { upload_url, file_id } = uploadUrlResponse;
 
         // Step 2: Upload file to URL
