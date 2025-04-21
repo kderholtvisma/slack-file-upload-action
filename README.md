@@ -1,8 +1,8 @@
 # Slack file upload action
 
-This action uploads files to Slack using the new external upload APIs (files.getUploadURLExternal and files.completeUploadExternal).
+This action uploads files to Slack using the new external upload APIs. It is fully compatible with Slack's API changes going into effect on November 12, 2025, when the legacy `files.upload` API will be discontinued.
 
-**IMPORTANT:** This action is compatible with Slack's API changes announced for November 12, 2025, when the legacy `files.upload` API will be discontinued.
+**IMPORTANT UPDATE:** This action now uses the recommended `files.getUploadURLExternal` and `files.completeUploadExternal` APIs for future compatibility. The migration is transparent to users - all existing workflows should continue to work without changes.
 
 ## Inputs
 

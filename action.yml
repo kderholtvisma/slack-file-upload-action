@@ -2,7 +2,7 @@ name: 'Slack File Upload'
 branding:
   icon: file
   color: red
-description: 'Uploads file to slack'
+description: 'Uploads files to Slack (compatible with 2025 API changes)'
 inputs:
   path:  # id of input
     description: 'Path to file'
