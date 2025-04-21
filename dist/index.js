@@ -7452,37 +7452,57 @@ function finish(result) {
 
 function makeApiRequest(options, body) {
     return new Promise((resolve, reject) => {
-        console.log(`Making API request to ${options.hostname}${options.path}`);
-        if (body) {
-            console.log(`Request body: ${body}`);
-        }
-        
-        const req = https.request(options, (res) => {
-            console.log(`Response status code: ${res.statusCode}`);
-            let rawData = '';
-            res.on('data', (chunk) => { rawData += chunk; });
-            res.on('end', () => {
-                console.log(`Response data: ${rawData}`);
-                try {
-                    const data = JSON.parse(rawData);
-                    if (data.ok) {
-                        resolve(data);
-                    } else {
-                        console.error(`API error: ${data.error}`, data);
-                        reject(data.error || "API request failed without error message");
+        try {
+            console.log(`Making API request to ${options.hostname}${options.path}`);
+            console.log(`Request headers: ${JSON.stringify(options.headers)}`);
+            
+            const req = https.request(options, (res) => {
+                console.log(`Response status code: ${res.statusCode}`);
+                console.log(`Response headers: ${JSON.stringify(res.headers)}`);
+                
+                let rawData = '';
+                res.on('data', (chunk) => { 
+                    rawData += chunk; 
+                });
+                
+                res.on('end', () => {
+                    console.log(`Response data: ${rawData}`);
+                    try {
+                        const data = JSON.parse(rawData);
+                        if (data.ok) {
+                            resolve(data);
+                        } else {
+                            const errorDetails = {
+                                error: data.error || "Unknown error",
+                                warnings: data.warning || [],
+                                metadata: data.response_metadata || {}
+                            };
+                            console.error(`API error: ${JSON.stringify(errorDetails)}`);
+                            reject(data.error || "API request failed without error message");
+                        }
+                    } catch (error) {
+                        console.error(`Error parsing response: ${error.message}`);
+                        reject(error.message);
                     }
-                } catch (error) {
-                    console.error(`Error parsing response: ${error.message}`);
-                    reject(error.message);
-                }
+                });
             });
-        });
-        req.on('error', (error) => {
-            console.error(`Request error: ${error.message}`);
+            
+            req.on('error', (error) => {
+                console.error(`Request error: ${error.message}`);
+                reject(error);
+            });
+            
+            if (body) {
+                req.write(body);
+                console.log(`Request body sent: ${body}`);
+            }
+            
+            req.end();
+            console.log('Request sent');
+        } catch (error) {
+            console.error(`Error in makeApiRequest: ${error.message}`);
             reject(error);
-        });
-        if (body) req.write(body);
-        req.end();
+        }
     });
 }
 
@@ -7490,24 +7510,33 @@ async function getUploadUrl(token, filePath, filename, filetype) {
     try {
         const fileSize = fs.statSync(filePath).size;
         
+        // Create request body
+        const requestData = {
+            filename: filename,
+            length: fileSize
+        };
+        
+        if (filetype) {
+            requestData.filetype = filetype;
+        }
+        
+        const bodyString = JSON.stringify(requestData);
+        
         const options = {
             hostname: 'slack.com',
             path: '/api/files.getUploadURLExternal',
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
+                'Content-Type': 'application/json; charset=utf-8',
+                'Content-Length': Buffer.byteLength(bodyString),
                 'Authorization': `Bearer ${token}`
             }
         };
-
-        const body = JSON.stringify({
-            filename: filename,
-            length: fileSize,
-            ...(filetype && { filetype })
-        });
         
         console.log(`Requesting upload URL for file: ${filename}, size: ${fileSize} bytes`);
-        const response = await makeApiRequest(options, body);
+        console.log(`Request data: ${JSON.stringify(requestData)}`);
+        
+        const response = await makeApiRequest(options, bodyString);
         return response;
     } catch (error) {
         console.error(`Error in getUploadUrl: ${error.message}`);
@@ -7566,38 +7595,52 @@ async function completeUpload(token, fileId, channel, initial_comment, thread_ts
     try {
         console.log(`Completing upload for file ID: ${fileId}`);
         
+        // Build request data
+        let requestData = {
+            files: [{
+                id: fileId
+            }]
+        };
+        
+        // Add title if provided
+        if (title) {
+            requestData.files[0].title = title;
+        }
+        
+        // Add channel
+        if (channel) {
+            // Check if it's a single channel or multiple comma-separated channels
+            if (channel.includes(',')) {
+                requestData.channel_ids = channel.split(',');
+            } else {
+                requestData.channel_id = channel;
+            }
+        }
+        
+        // Add additional parameters if provided
+        if (initial_comment) {
+            requestData.initial_comment = initial_comment;
+        }
+        
+        if (thread_ts) {
+            requestData.thread_ts = thread_ts;
+        }
+        
+        const bodyString = JSON.stringify(requestData);
+        
         const options = {
             hostname: 'slack.com',
             path: '/api/files.completeUploadExternal',
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
+                'Content-Type': 'application/json; charset=utf-8',
+                'Content-Length': Buffer.byteLength(bodyString),
                 'Authorization': `Bearer ${token}`
             }
         };
 
-        let channelParam = {};
-        if (channel) {
-            // Check if it's a single channel or multiple comma-separated channels
-            if (channel.includes(',')) {
-                channelParam = { channel_ids: channel.split(',') };
-            } else {
-                channelParam = { channel_id: channel };
-            }
-        }
-
-        const body = JSON.stringify({
-            files: [{
-                id: fileId,
-                ...(title && { title }),
-            }],
-            ...channelParam,
-            ...(initial_comment && { initial_comment }),
-            ...(thread_ts && { thread_ts })
-        });
-
-        console.log(`Complete upload request body: ${JSON.stringify(JSON.parse(body), null, 2)}`);
-        const response = await makeApiRequest(options, body);
+        console.log(`Complete upload request data: ${JSON.stringify(requestData, null, 2)}`);
+        const response = await makeApiRequest(options, bodyString);
         console.log(`Complete upload response: ${JSON.stringify(response)}`);
         return response;
     } catch (error) {
